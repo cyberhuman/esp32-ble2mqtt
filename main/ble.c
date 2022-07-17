@@ -60,6 +60,7 @@ typedef struct ble_operation_t {
 /* Internal state */
 static uint8_t scan_requested = 0;
 static uint8_t conn_in_progress = 0;
+static uint8_t operation_in_progress = 0;
 static esp_gatt_if_t g_gattc_if = ESP_GATT_IF_NONE;
 static ble_device_t *devices_list = NULL;
 static ble_operation_t *operation_queue = NULL;
@@ -202,10 +203,14 @@ static void ble_operation_dequeue(ble_operation_t **queue)
         "len: %u, val: %p", operation->type, MAC_PARAM(operation->device->mac),
         UUID_PARAM(operation->characteristic->uuid), operation->len,
         operation->value);
+    operation_in_progress = 1;
     ble_operation_perform(operation);
 
     if (operation->type == BLE_OPERATION_TYPE_WRITE_CHAR)
+    {
+        operation_in_progress = 0;
         ble_operation_dequeue(queue);
+    }
 
     if (operation->len)
         free(operation->value);
@@ -214,7 +219,9 @@ static void ble_operation_dequeue(ble_operation_t **queue)
 
 static void ble_queue_timer_cb(TimerHandle_t xTimer)
 {
-    ESP_LOGD(TAG, "Queue timer expired");
+    ESP_LOGD(TAG, "Queue timer expired, operation_in_progress: %u", operation_in_progress);
+    if (operation_in_progress)
+        return;
     ble_operation_dequeue(&operation_queue);
 }
 
@@ -996,7 +1003,10 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
     }
 
     if (need_dequeue)
+    {
+        operation_in_progress = 0;
         ble_operation_dequeue(&operation_queue);
+    }
 }
 
 static void ble_purge_device_list_timer_cb(TimerHandle_t xTimer)
