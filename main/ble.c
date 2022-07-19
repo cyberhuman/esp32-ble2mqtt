@@ -736,7 +736,7 @@ static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
         }
 
         /* Cache device information */
-        name = ble_device_name_get(param->scan_rst.ble_adv);
+        // name = ble_device_name_get(param->scan_rst.ble_adv);
         ble_device_add(&devices_list, name, param->scan_rst.bda,
             param->scan_rst.ble_addr_type, 0xffff);
 
