@@ -59,6 +59,7 @@ typedef struct ble_operation_t {
 
 /* Internal state */
 static uint8_t scan_requested = 0;
+static uint8_t conn_in_progress = 0;
 static esp_gatt_if_t g_gattc_if = ESP_GATT_IF_NONE;
 static ble_device_t *devices_list = NULL;
 static ble_operation_t *operation_queue = NULL;
@@ -160,7 +161,8 @@ static inline void ble_operation_perform(ble_operation_t *operation)
     {
     case BLE_OPERATION_TYPE_CONNECT:
         /* Stop scanning while attempting to connect */
-        esp_ble_gap_stop_scanning();
+        if (!conn_in_progress++)
+            esp_ble_gap_stop_scanning();
         esp_ble_gattc_open(g_gattc_if, operation->device->mac,
             operation->device->addr_type, true);
         break;
@@ -802,7 +804,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
         need_dequeue = 1;
 
         /* Resume scanning, if requested */
-        if (scan_requested)
+        if (!--conn_in_progress && scan_requested)
             esp_ble_gap_start_scanning(-1);
 
         if (param->open.status != ESP_GATT_OK)
