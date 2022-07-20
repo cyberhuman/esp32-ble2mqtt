@@ -935,13 +935,13 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                 /* Try again */
                 esp_ble_gattc_read_char(g_gattc_if, param->read.conn_id,
                         param->read.handle, ESP_GATT_AUTH_REQ_NONE);
-                need_dequeue = 0;
             }
             else
             {
                 ESP_LOGE(TAG, "Failed reading characteristic, status = 0x%x",
                         param->read.status);
             }
+            need_dequeue = 0;
         }
         else if (!ble_device_info_get_by_conn_id_handle(devices_list,
             param->read.conn_id, param->read.handle, &device, &service,
