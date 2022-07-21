@@ -839,6 +839,8 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
         break;
     }
     case ESP_GATTC_CLOSE_EVT:
+        need_dequeue = 1;
+
         ESP_LOGI(TAG, "Connection closed, reason = 0x%x", param->close.reason);
         /* Notify app that the device is disconnected */
         if (on_device_disconnected_cb)
