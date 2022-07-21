@@ -59,7 +59,6 @@ typedef struct ble_operation_t {
 
 /* Internal state */
 static uint8_t scan_requested = 0;
-static uint8_t conn_in_progress = 0;
 static uint8_t operation_in_progress = 0;
 static esp_gatt_if_t g_gattc_if = ESP_GATT_IF_NONE;
 static ble_device_t *devices_list = NULL;
@@ -158,12 +157,12 @@ static void ble_operation_remove_by_mac(ble_operation_t **queue,
 
 static inline void ble_operation_perform(ble_operation_t *operation)
 {
+    operation_in_progress = 1;
     switch (operation->type)
     {
     case BLE_OPERATION_TYPE_CONNECT:
         /* Stop scanning while attempting to connect */
-        if (!conn_in_progress++)
-            esp_ble_gap_stop_scanning();
+        esp_ble_gap_stop_scanning();
         esp_ble_gattc_open(g_gattc_if, operation->device->mac,
             operation->device->addr_type, true);
         break;
@@ -186,28 +185,24 @@ static inline void ble_operation_perform(ble_operation_t *operation)
             operation->characteristic->client_config_handle, operation->len,
             operation->value,
             ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
+        operation_in_progress = 0;
         break;
     }
 }
 
-static void ble_operation_dequeue(ble_operation_t **queue)
+static void ble_operation_dequeue_loop(ble_operation_t **queue)
 {
     ble_operation_t *operation;
 
-    while ((operation = *queue))
+    while (!operation_in_progress && (operation = *queue))
     {
         *queue = operation->next;
+
         ESP_LOGD(TAG, "Dequeue: type: %d, device: " MAC_FMT ", char: " UUID_FMT ", "
             "len: %u, val: %p", operation->type, MAC_PARAM(operation->device->mac),
             UUID_PARAM(operation->characteristic->uuid), operation->len,
             operation->value);
-        operation_in_progress = 1;
         ble_operation_perform(operation);
-
-        if (operation->type != BLE_OPERATION_TYPE_WRITE_CHAR)
-            break;
-
-        operation_in_progress = 0;
 
         if (operation->len)
             free(operation->value);
@@ -218,9 +213,7 @@ static void ble_operation_dequeue(ble_operation_t **queue)
 static void ble_queue_timer_cb(TimerHandle_t xTimer)
 {
     ESP_LOGD(TAG, "Queue timer expired, operation_in_progress: %u", operation_in_progress);
-    if (operation_in_progress)
-        return;
-    ble_operation_dequeue(&operation_queue);
+    ble_operation_dequeue_loop(&operation_queue);
 }
 
 static void ble_operation_enqueue(ble_operation_t **queue,
@@ -745,7 +738,6 @@ static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
         }
 
         /* Cache device information */
-        // name = ble_device_name_get(param->scan_rst.ble_adv);
         ble_device_add(&devices_list, name, param->scan_rst.bda,
             param->scan_rst.ble_addr_type, 0xffff);
 
@@ -813,7 +805,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
         need_dequeue = 1;
 
         /* Resume scanning, if requested */
-        if (!--conn_in_progress && scan_requested)
+        if (scan_requested)
             esp_ble_gap_start_scanning(-1);
 
         if (param->open.status != ESP_GATT_OK)
@@ -839,8 +831,6 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
         break;
     }
     case ESP_GATTC_CLOSE_EVT:
-        need_dequeue = 1;
-
         ESP_LOGI(TAG, "Connection closed, reason = 0x%x", param->close.reason);
         /* Notify app that the device is disconnected */
         if (on_device_disconnected_cb)
@@ -935,14 +925,13 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                 /* Try again */
                 esp_ble_gattc_read_char(g_gattc_if, param->read.conn_id,
                         param->read.handle, ESP_GATT_AUTH_REQ_NONE);
+                need_dequeue = 0;
             }
             else
             {
                 ESP_LOGE(TAG, "Failed reading characteristic, status = 0x%x",
                         param->read.status);
             }
-            need_dequeue = 0;
-            operation_in_progress = 0;
         }
         else if (!ble_device_info_get_by_conn_id_handle(devices_list,
             param->read.conn_id, param->read.handle, &device, &service,
@@ -1005,8 +994,9 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
 
     if (need_dequeue)
     {
+        ESP_LOGD(TAG, "Need dequeue");
         operation_in_progress = 0;
-        ble_operation_dequeue(&operation_queue);
+        ble_operation_dequeue_loop(&operation_queue);
     }
 }
 
