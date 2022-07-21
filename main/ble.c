@@ -940,6 +940,7 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                         param->read.status);
             }
             need_dequeue = 0;
+            operation_in_progress = 0;
         }
         else if (!ble_device_info_get_by_conn_id_handle(devices_list,
             param->read.conn_id, param->read.handle, &device, &service,
