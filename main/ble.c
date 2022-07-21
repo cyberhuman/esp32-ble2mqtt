@@ -192,29 +192,27 @@ static inline void ble_operation_perform(ble_operation_t *operation)
 
 static void ble_operation_dequeue(ble_operation_t **queue)
 {
-    ble_operation_t *operation = *queue;
+    ble_operation_t *operation;
 
-    /* Queue is empty, nothing to do */
-    if (!operation)
-        return;
-
-    *queue = operation->next;
-    ESP_LOGD(TAG, "Dequeue: type: %d, device: " MAC_FMT ", char: " UUID_FMT ", "
-        "len: %u, val: %p", operation->type, MAC_PARAM(operation->device->mac),
-        UUID_PARAM(operation->characteristic->uuid), operation->len,
-        operation->value);
-    operation_in_progress = 1;
-    ble_operation_perform(operation);
-
-    if (operation->type == BLE_OPERATION_TYPE_WRITE_CHAR)
+    while ((operation = *queue))
     {
-        operation_in_progress = 0;
-        ble_operation_dequeue(queue);
-    }
+        *queue = operation->next;
+        ESP_LOGD(TAG, "Dequeue: type: %d, device: " MAC_FMT ", char: " UUID_FMT ", "
+            "len: %u, val: %p", operation->type, MAC_PARAM(operation->device->mac),
+            UUID_PARAM(operation->characteristic->uuid), operation->len,
+            operation->value);
+        operation_in_progress = 1;
+        ble_operation_perform(operation);
 
-    if (operation->len)
-        free(operation->value);
-    free(operation);
+        if (operation->type != BLE_OPERATION_TYPE_WRITE_CHAR)
+            break;
+
+        operation_in_progress = 0;
+
+        if (operation->len)
+            free(operation->value);
+        free(operation);
+    }
 }
 
 static void ble_queue_timer_cb(TimerHandle_t xTimer)
