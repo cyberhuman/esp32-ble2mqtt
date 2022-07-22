@@ -157,26 +157,31 @@ static void ble_operation_remove_by_mac(ble_operation_t **queue,
 
 static inline void ble_operation_perform(ble_operation_t *operation)
 {
-    operation_in_progress = 1;
+    esp_err_t result = ESP_OK;
+
     switch (operation->type)
     {
     case BLE_OPERATION_TYPE_CONNECT:
         /* Stop scanning while attempting to connect */
         esp_ble_gap_stop_scanning();
-        esp_ble_gattc_open(g_gattc_if, operation->device->mac,
+        result = esp_ble_gattc_open(g_gattc_if, operation->device->mac,
             operation->device->addr_type, true);
+        if (result != ESP_OK)
+        {
+            esp_ble_gap_start_scanning(-1);
+        }
         break;
     case BLE_OPERATION_TYPE_READ:
-        esp_ble_gattc_read_char(g_gattc_if, operation->device->conn_id,
+        result = esp_ble_gattc_read_char(g_gattc_if, operation->device->conn_id,
             operation->characteristic->handle, ESP_GATT_AUTH_REQ_NONE);
         break;
     case BLE_OPERATION_TYPE_WRITE:
-        esp_ble_gattc_write_char(g_gattc_if, operation->device->conn_id,
+        result = esp_ble_gattc_write_char(g_gattc_if, operation->device->conn_id,
             operation->characteristic->handle, operation->len, operation->value,
             ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
         break;
     case BLE_OPERATION_TYPE_WRITE_NR:
-        esp_ble_gattc_write_char(g_gattc_if, operation->device->conn_id,
+        result = esp_ble_gattc_write_char(g_gattc_if, operation->device->conn_id,
             operation->characteristic->handle, operation->len, operation->value,
             ESP_GATT_WRITE_TYPE_NO_RSP, ESP_GATT_AUTH_REQ_NONE);
         break;
@@ -185,9 +190,11 @@ static inline void ble_operation_perform(ble_operation_t *operation)
             operation->characteristic->client_config_handle, operation->len,
             operation->value,
             ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
-        operation_in_progress = 0;
         break;
     }
+    operation_in_progress =
+        operation->type != BLE_OPERATION_TYPE_WRITE_CHAR &&
+        result == ESP_OK;
 }
 
 static void ble_operation_dequeue_loop(ble_operation_t **queue)
