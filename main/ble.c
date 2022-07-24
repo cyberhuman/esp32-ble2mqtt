@@ -59,6 +59,7 @@ typedef struct ble_operation_t {
 
 /* Internal state */
 static uint8_t scan_requested = 0;
+static uint8_t scan_active = 0;
 static uint8_t operation_in_progress = 0;
 static esp_gatt_if_t g_gattc_if = ESP_GATT_IF_NONE;
 static ble_device_t *devices_list = NULL;
@@ -166,10 +167,9 @@ static inline void ble_operation_perform(ble_operation_t *operation)
         esp_ble_gap_stop_scanning();
         result = esp_ble_gattc_open(g_gattc_if, operation->device->mac,
             operation->device->addr_type, true);
-        if (result != ESP_OK)
-        {
-            esp_ble_gap_start_scanning(-1);
-        }
+        scan_active =
+            result != ESP_OK &&
+            esp_ble_gap_start_scanning(-1) == ESP_OK;
         break;
     case BLE_OPERATION_TYPE_READ:
         result = esp_ble_gattc_read_char(g_gattc_if, operation->device->conn_id,
@@ -284,24 +284,38 @@ void ble_clear_bonding_info(void)
 
 int ble_scan_start(void)
 {
+    esp_err_t result;
+
     ESP_LOGD(TAG, "Starting BLE scan");
     if (scan_requested)
         return 0;
 
+    result = esp_ble_gap_start_scanning(-1);
     scan_requested = 1;
-    return esp_ble_gap_start_scanning(-1);
+    scan_active = (result == ESP_OK);
+    return result;
 }
 
 int ble_scan_stop(void)
 {
+    esp_err_t result;
+
     ESP_LOGD(TAG, "Stopping BLE scan");
     if (!scan_requested)
         return 0;
 
     ble_operation_remove_by_type(&operation_queue, BLE_OPERATION_TYPE_CONNECT);
 
+    if (scan_active)
+    {
+        result = esp_ble_gap_stop_scanning();
+    } else
+    {
+        result = ESP_OK;
+    }
     scan_requested = 0;
-    return esp_ble_gap_stop_scanning();
+    scan_active = 0;
+    return result;
 }
 
 int ble_connect(mac_addr_t mac)
@@ -812,8 +826,9 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
         need_dequeue = 1;
 
         /* Resume scanning, if requested */
-        if (scan_requested)
-            esp_ble_gap_start_scanning(-1);
+        scan_active =
+            scan_requested &&
+            esp_ble_gap_start_scanning(-1) == ESP_OK;
 
         if (param->open.status != ESP_GATT_OK)
         {
