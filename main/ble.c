@@ -61,6 +61,7 @@ typedef struct ble_operation_t {
 static uint8_t scan_requested = 0;
 static uint8_t scan_active = 0;
 static uint8_t operation_in_progress = 0;
+static ble_operation_type_t operation_type_in_progress = BLE_OPERATION_TYPE_CONNECT;
 static esp_gatt_if_t g_gattc_if = ESP_GATT_IF_NONE;
 static ble_device_t *devices_list = NULL;
 static ble_operation_t *operation_queue = NULL;
@@ -192,6 +193,7 @@ static inline void ble_operation_perform(ble_operation_t *operation)
             ESP_GATT_WRITE_TYPE_RSP, ESP_GATT_AUTH_REQ_NONE);
         break;
     }
+    operation_type_in_progress = operation->type;
     operation_in_progress =
         operation->type != BLE_OPERATION_TYPE_WRITE_CHAR &&
         result == ESP_OK;
@@ -219,7 +221,8 @@ static void ble_operation_dequeue_loop(ble_operation_t **queue)
 
 static void ble_queue_timer_cb(TimerHandle_t xTimer)
 {
-    ESP_LOGD(TAG, "Queue timer expired, operation_in_progress: %u", operation_in_progress);
+    ESP_LOGD(TAG, "Queue timer expired, operation_in_progress: %u operation_type_in_progress: %u",
+        operation_in_progress, operation_type_in_progress);
     ble_operation_dequeue_loop(&operation_queue);
 }
 
@@ -865,6 +868,10 @@ static void esp_gattc_cb(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
         xSemaphoreTakeRecursive(devices_list_semaphore, portMAX_DELAY);
         ble_device_remove_by_mac(&devices_list, param->close.remote_bda);
         xSemaphoreGiveRecursive(devices_list_semaphore);
+
+        need_dequeue =
+            operation_in_progress &&
+            operation_type_in_progress != BLE_OPERATION_TYPE_CONNECT;
         break;
     case ESP_GATTC_CFG_MTU_EVT:
         if (param->cfg_mtu.status != ESP_GATT_OK)
